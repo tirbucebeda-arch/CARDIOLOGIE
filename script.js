@@ -2610,11 +2610,10 @@ const CONFIG = {
     let timerInterval = null;
     let currentQuestionIndex = 0;
     let savedQuestionAnswers = {};
-    const QUESTION_DURATION_SECONDS = 30;
     const QUIZ_SETTINGS_KEY = "CARDIOLOGIE_L3_AHOUSSI_FIDEL_quiz_settings_v1";
     const DEFAULT_QUIZ_SETTINGS = {
       questionCount: 60,
-      displayMode: "one",
+      displayMode: "all",
       questionType: "both",
       cameraEnabled: false,
       antiCheatEnabled: true
@@ -2653,8 +2652,10 @@ const CONFIG = {
     function loadQuizSettings() {
       try {
         const saved = { ...DEFAULT_QUIZ_SETTINGS, ...JSON.parse(localStorage.getItem(QUIZ_SETTINGS_KEY) || "{}") };
+        saved.questionCount = 60;
+        saved.questionType = "both";
         saved.cameraEnabled = false;
-        saved.displayMode = "one";
+        saved.displayMode = "all";
         saved.antiCheatEnabled = true;
         return saved;
       } catch (error) {
@@ -2673,9 +2674,7 @@ const CONFIG = {
     }
 
     function selectQuizQuestions(questionBank) {
-      const available = getQuestionsForSelectedType(questionBank);
-      const quantity = Math.min(Number(quizSettings.questionCount) || 15, available.length);
-      return shuffleQuestions(available).slice(0, quantity);
+      return shuffleQuestions(questionBank);
     }
 
     function getQuestionOrderSignature(questions) {
@@ -3012,7 +3011,7 @@ const CONFIG = {
             <h4>${escapeHTML(availableSubject.title)}</h4>
           </div>
           <p class="student-evaluation-meta"><strong>Matière :</strong> ${escapeHTML(availableSubject.matter)}</p>
-          <p class="student-evaluation-meta"><strong>Durée :</strong> ${availableSubject.duration} min</p>
+          <p class="student-evaluation-meta">Sans limite de temps</p>
           <p class="student-evaluation-meta"><strong>Questions :</strong> ${availableSubject.questions.length} dans le sujet — ${getQuizTypeLabel()} — ${quizSettings.displayMode === "all" ? "toutes sur une page" : "question par question"}</p>
           <p class="student-evaluation-meta"><strong>Fermeture :</strong> ${formatDateTime(availableSubject.closeDate, availableSubject.closeTime)}</p>
           <button class="student-start-btn" onclick="startQuickEvaluation('${availableSubject.id}')">Commencer</button>
@@ -3072,19 +3071,19 @@ const CONFIG = {
           <h2>⚙ Paramètres du quiz</h2>
           <div class="settings-field">
             <label for="settingsQuestionCount"><strong>Nombre de questions</strong></label>
-            <input id="settingsQuestionCount" type="number" min="1" max="${max}" value="${Math.min(quizSettings.questionCount, max)}">
-            <small id="settingsQuestionLimit" class="muted">Maximum disponible : ${max}</small>
+            <input id="settingsQuestionCount" disabled type="number" min="1" max="${max}" value="${Math.min(quizSettings.questionCount, max)}">
+            <small id="settingsQuestionLimit" class="muted">Toutes les questions du sujet sont affichées, sans limite de temps.</small>
           </div>
           <div class="settings-field">
             <label for="settingsDisplayMode"><strong>Mode d’affichage</strong></label>
             <select id="settingsDisplayMode" disabled>
-              <option value="one" ${quizSettings.displayMode === "one" ? "selected" : ""}>Question par question</option>
+              
               <option value="all" ${quizSettings.displayMode === "all" ? "selected" : ""}>Toutes les questions</option>
             </select>
           </div>
           <div class="settings-field">
             <label for="settingsQuestionType"><strong>Type de questions</strong></label>
-            <select id="settingsQuestionType" onchange="updateSettingsQuestionLimit()">
+            <select id="settingsQuestionType" disabled onchange="updateSettingsQuestionLimit()">
               <option value="both" ${quizSettings.questionType === "both" ? "selected" : ""}>QCM et QCD</option>
               <option value="qcm" ${quizSettings.questionType === "qcm" ? "selected" : ""}>QCM seulement</option>
               <option value="qcd" ${quizSettings.questionType === "qcd" ? "selected" : ""}>QCD seulement (Vrai/Faux)</option>
@@ -3134,7 +3133,7 @@ const CONFIG = {
       const requested = Number(document.getElementById("settingsQuestionCount").value);
       quizSettings = {
         questionCount: Math.max(1, Math.min(max, Number.isFinite(requested) ? Math.floor(requested) : 50)),
-        displayMode: "one",
+        displayMode: "all",
         questionType: type,
         cameraEnabled: false,
         antiCheatEnabled: true
@@ -3195,7 +3194,7 @@ const CONFIG = {
       currentQuestionIndex = 0;
       savedQuestionAnswers = {};
       renderQuiz();
-      startTimer(QUESTION_DURATION_SECONDS);
+
       startPageExitTracking();
     }
 
@@ -3487,7 +3486,7 @@ const CONFIG = {
       currentQuestionIndex = 0;
       savedQuestionAnswers = {};
       renderQuiz();
-      startTimer(QUESTION_DURATION_SECONDS);
+
       startPageExitTracking();
     }
 
@@ -3538,58 +3537,23 @@ const CONFIG = {
      * INTERFACE QUIZ
      ********************************************************************/
     function renderQuiz() {
+      quizSettings.displayMode = "all";
       const quizView = document.getElementById("quizView");
       const totalQuestions = currentSubject.questions.length;
-      if (quizSettings.displayMode === "all") {
-        quizView.innerHTML = `
-          <div class="quiz-layout quiz-layout-single">
-            <div class="panel quiz-panel quiz-panel-clean">
-              <div class="question-timer-top question-timer-clean">
-                <strong id="timer" class="timer question-timer">${String(Math.floor((totalQuestions * QUESTION_DURATION_SECONDS) / 60)).padStart(2, "0")}:00</strong>
-                <div class="question-progress-wrap"><div id="questionProgressBar" class="question-progress-bar" style="width:100%"></div></div>
-              </div>
-              <form id="quizForm">
-                <p class="muted all-questions-note">${totalQuestions} questions affichées sur cette page.</p>
-                ${currentSubject.questions.map((question, index) => `
-                  <section class="all-question-block">
-                    <div class="all-question-number">Question ${index + 1} / ${totalQuestions}</div>
-                    ${renderQuestion(question, index)}
-                  </section>`).join("")}
-                <div class="question-navigation">
-                  <button type="button" class="btn-green" onclick="submitQuiz(false)">Valider ma composition</button>
-                </div>
-              </form>
-            </div>
-          </div>`;
-        restoreAllQuestionAnswers();
-        quizView.scrollIntoView({ behavior: "smooth", block: "start" });
-        return;
-      }
-      const q = currentSubject.questions[currentQuestionIndex];
-      const isLastQuestion = currentQuestionIndex >= totalQuestions - 1;
-
       quizView.innerHTML = `
-        <div class="quiz-layout quiz-layout-single">
-          <div class="panel quiz-panel quiz-panel-clean">
-            <div class="question-timer-top question-timer-clean">
-              <strong id="timer" class="timer question-timer">00:30</strong>
-              <div class="question-progress-wrap" aria-label="Progression du temps restant">
-                <div id="questionProgressBar" class="question-progress-bar" style="width:100%"></div>
-              </div>
-            </div>
-
-            <form id="quizForm">
-              ${renderQuestion(q, currentQuestionIndex)}
-              <div class="question-navigation">
-                <button type="button" class="btn-green" onclick="goToNextQuestion()">
-                  ${isLastQuestion ? "Valider ma composition" : "Question suivante"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      `;
-      restoreCurrentQuestionAnswer();
+        <div class="quiz-layout quiz-layout-single"><div class="panel quiz-panel quiz-panel-clean">
+          <h2>${escapeHTML(currentSubject.title)}</h2>
+          <p class="muted">Toutes les ${totalQuestions} questions sont affichées ci-dessous. Sans limite de temps.</p>
+          <form id="quizForm">
+            ${currentSubject.questions.map((question, index) => `
+              <section class="all-question-block">
+                <div class="all-question-number">Question ${index + 1} / ${totalQuestions}</div>
+                ${renderQuestion(question, index)}
+              </section>`).join("")}
+            <div class="question-navigation"><button type="button" class="btn-green" onclick="submitQuiz(false)">Valider ma composition</button></div>
+          </form>
+        </div></div>`;
+      restoreAllQuestionAnswers();
       quizView.scrollIntoView({ behavior: "smooth", block: "start" });
     }
 
@@ -3652,40 +3616,10 @@ const CONFIG = {
       }
       currentQuestionIndex++;
       renderQuiz();
-      startTimer(QUESTION_DURATION_SECONDS);
+
     }
 
-    function startTimer(seconds) {
-      if (quizSettings.displayMode === "all") seconds = currentSubject.questions.length * QUESTION_DURATION_SECONDS;
-      let remaining = seconds;
-      updateTimerDisplay(remaining, seconds);
-      clearInterval(timerInterval);
-      timerInterval = setInterval(() => {
-        remaining--;
-        updateTimerDisplay(remaining, seconds);
-        if (remaining <= 0) {
-          clearInterval(timerInterval);
-          if (quizSettings.displayMode === "all") submitQuiz(true);
-          else goToNextQuestion();
-        }
-      }, 1000);
-    }
 
-    function updateTimerDisplay(seconds, totalSeconds = QUESTION_DURATION_SECONDS) {
-      const safeSeconds = Math.max(0, seconds);
-      const min = Math.floor(safeSeconds / 60).toString().padStart(2, "0");
-      const sec = (safeSeconds % 60).toString().padStart(2, "0");
-      const el = document.getElementById("timer");
-      if (el) el.textContent = `${min}:${sec}`;
-
-      const progress = document.getElementById("questionProgressBar");
-      if (progress) {
-        const percent = totalSeconds > 0 ? Math.max(0, Math.min(100, (safeSeconds / totalSeconds) * 100)) : 0;
-        progress.style.width = `${percent}%`;
-        progress.classList.toggle("warning", percent <= 35 && percent > 15);
-        progress.classList.toggle("danger", percent <= 15);
-      }
-    }
 
 
     function sameAnswers(studentAnswers, expectedAnswers) {
@@ -3707,8 +3641,7 @@ const CONFIG = {
       const marking = currentSubject.marking || CONFIG.defaultMarking;
       const answers = [];
 
-      if (quizSettings.displayMode === "all") saveAllQuestionAnswers();
-      else saveCurrentQuestionAnswer();
+      saveAllQuestionAnswers();
 
       currentSubject.questions.forEach((q, index) => {
         const expected = Array.isArray(q.answers) ? q.answers : (Array.isArray(q.correct) ? q.correct : [q.answer || q.correct]);
@@ -3829,7 +3762,7 @@ const CONFIG = {
             <div><strong>Bonnes réponses :</strong> ${result.good}</div>
             <div><strong>Mauvaises réponses :</strong> ${result.bad}</div>
             <div><strong>Sans réponse :</strong> ${result.empty}</div>
-            <div><strong>Temps utilisé :</strong> ${result.usedTime}</div>
+
             <div><strong>Incidents sécurité :</strong> ${Number(result.pageExitCount || 0)}</div>
             <div><strong>Détails sécurité :</strong><br>${renderSecurityEvents(result.pageExitEvents || result.securityEvents)}</div>
           </div>
